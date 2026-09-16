@@ -103,6 +103,27 @@ app.post("/send", async (req, res) => {
   }
 });
 
+app.get("/send-test", async (req, res) => {
+  const key = req.query.key;
+  if (key !== SECRET) {
+    res.status(401).send("unauthorized");
+    return;
+  }
+  if (!connected) {
+    res.status(503).send("not connected yet");
+    return;
+  }
+  try {
+    const to = req.query.to;
+    const message = req.query.message || "Test message from your WhatsApp bridge!";
+    const jid = to.indexOf("@") >= 0 ? to : to + "@s.whatsapp.net";
+    await sock.sendMessage(jid, { text: message });
+    res.send("sent!");
+  } catch (err) {
+    res.status(500).send("failed: " + err.message);
+  }
+});
+
 app.listen(PORT, function () {
   console.log("Bridge server running on port " + PORT);
 });

@@ -5,7 +5,6 @@ const {
   useMultiFileAuthState,
   DisconnectReason,
 } = require("@whiskeysockets/baileys");
-const { Boom } = require("@hapi/boom") || {};
 
 const app = express();
 app.use(express.json());
@@ -29,7 +28,9 @@ async function startSock() {
   sock.ev.on("creds.update", saveCreds);
 
   sock.ev.on("connection.update", (update) => {
-    const { connection, lastDisconnect, qr } = update;
+    const connection = update.connection;
+    const lastDisconnect = update.lastDisconnect;
+    const qr = update.qr;
 
     if (qr) {
       latestQR = qr;
@@ -43,7 +44,9 @@ async function startSock() {
 
     if (connection === "close") {
       connected = false;
-      const statusCode = lastDisconnect?.error?.output?.statusCode;
+      const statusCode = lastDisconnect && lastDisconnect.error && lastDisconnect.error.output
+        ? lastDisconnect.error.output.statusCode
+        : null;
       const shouldReconnect = statusCode !== DisconnectReason.loggedOut;
       console.log("Connection closed. Reconnecting:", shouldReconnect);
       if (shouldReconnect) {
@@ -55,41 +58,51 @@ async function startSock() {
 
 startSock();
 
-// Visit this page in your browser to scan the QR code and log in
 app.get("/qr", async (req, res) => {
   if (connected) {
-    return res.send("<h2>Already connected to WhatsApp.</h2>");
+    res.send("<h2>Already connected to WhatsApp.</h2>");
+    return;
   }
   if (!latestQR) {
-    return res.send("<h2>Waiting for QR code... refresh in a few seconds.</h2>");
+    res.send("<h2>Waiting for QR code... refresh in a few seconds.</h2>");
+    return;
   }
   const qrImage = await qrcode.toDataURL(latestQR);
-  res.send(`<h2>Scan this with WhatsApp (Linked Devices):</h2><img src="${qrImage}" />`);
+  res.send("<h2>Scan this with WhatsApp (Linked Devices):</h2><img src='" + qrImage + "' />");
 });
 
 app.get("/health", (req, res) => {
-  res.json({ connected });
+  res.json({ connected: connected });
 });
 
-// Send a message: POST /send { "to": "50688888888", "message": "hello" }
 app.post("/send", async (req, res) => {
   const key = req.headers["x-api-key"];
   if (key !== SECRET) {
-    return res.status(401).json({ error: "unauthorized" });
+    res.status(401).json({ error: "unauthorized" });
+    return;
   }
   if (!connected) {
-    return res.status(503).json({ error: "whatsapp not connected yet" });
+    res.status(503).json({ error: "whatsapp not connected yet" });
+    return;
   }
 
-  const { to, message } = req.body;
+  const to = req.body.to;
+  const message = req.body.message;
   if (!to || !message) {
-    return res.status(400).json({ error: "to and message are required" });
+    res.status(400).json({ error: "to and message are required" });
+    return;
   }
 
   try {
-    const jid = to.includes("@") ? to : `${to}@s.whatsapp.net`;
+    const jid = to.indexOf("@") >= 0 ? to : to + "@s.whatsapp.net";
     await sock.sendMessage(jid, { text: message });
     res.json({ success: true });
   } catch (err) {
     console.error(err);
-    res.status(500).json({ error: "failed to
+    res.status(500).json({ error: "failed to send" });
+  }
+});
+
+app.listen(PORT, function () {
+  console.log("Bridge server running on port " + PORT);
+});
